@@ -6,6 +6,13 @@ const { LEGACY_STUDENTS } = require('../config/constants');
 
 async function ensureLegacyStudentsSeeded(usersCol) {
   const legacyUsernames = LEGACY_STUDENTS.map(s => s.username);
+
+  // Fix any legacy users that exist but are missing the role field
+  await usersCol.updateMany(
+    { username: { $in: legacyUsernames }, role: { $exists: false } },
+    { $set: { role: 'student' } }
+  );
+
   const existing = await usersCol
     .find({ username: { $in: legacyUsernames } })
     .project({ username: 1 })
@@ -41,11 +48,6 @@ exports.getStats = async (req, res) => {
       getCollection('pending_gatha'),
       getCollection('users')
     ]);
-
-    if (usersCollection) {
-      const dbCount = await usersCollection.countDocuments({ role: 'student' });
-      if (dbCount < LEGACY_STUDENTS.length) await ensureLegacyStudentsSeeded(usersCollection);
-    }
 
     const [totalStudents, todayAtt, pendingAtt, pendingG] = await Promise.all([
       usersCollection ? usersCollection.countDocuments({ role: 'student' }) : Promise.resolve(0),
@@ -290,12 +292,6 @@ exports.getStudents = async (req, res) => {
     ]);
     if (!usersCol) return res.json([]);
 
-    // Auto-seed if fewer students in DB than legacy list
-    const dbCount = await usersCol.countDocuments({ role: 'student' });
-    if (dbCount < LEGACY_STUDENTS.length) {
-      await ensureLegacyStudentsSeeded(usersCol);
-    }
-
     // Fetch students + bulk aggregate stats in parallel (3 queries total, not 66)
     const [allStudents, attAgg, gathaAgg] = await Promise.all([
       usersCol.find({ role: 'student' }).toArray(),
@@ -436,10 +432,6 @@ exports.exportReport = async (req, res) => {
       getCollection('users')
     ]);
     if (!usersCol) return res.status(500).json({ error: 'Database not available' });
-
-    // Auto-seed if needed
-    const dbCount = await usersCol.countDocuments({ role: 'student' });
-    if (dbCount < LEGACY_STUDENTS.length) await ensureLegacyStudentsSeeded(usersCol);
 
     // Bulk aggregate in parallel (3 queries total)
     const [allStudentsList, attAgg, gathaAgg] = await Promise.all([
