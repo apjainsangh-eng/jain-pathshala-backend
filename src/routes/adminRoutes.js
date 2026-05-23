@@ -18,6 +18,9 @@ router.post('/approve-all', authenticate, adminController.approveAll);
 
 // === Students List ===
 router.get('/students', authenticate, adminController.getStudents);
+router.get('/top-students', authenticate, adminController.getTopStudents);
+router.get('/export-report', authenticate, adminController.exportReport);
+router.post('/seed-students', authenticate, adminController.seedStudents);
 
 // === Student Profile ===
 router.get('/student/:username/profile', authenticate, studentProfileController.getStudentProfile);

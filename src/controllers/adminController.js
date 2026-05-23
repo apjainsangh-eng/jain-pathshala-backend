@@ -2,6 +2,27 @@ const { getCollection } = require('../config/db');
 const { formatTime, formatDate } = require('../utils/helpers');
 const { ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
+const { LEGACY_STUDENTS } = require('../config/constants');
+
+async function ensureLegacyStudentsSeeded(usersCol) {
+  for (const student of LEGACY_STUDENTS) {
+    const existing = await usersCol.findOne({
+      username: { $regex: new RegExp('^' + student.username + '$', 'i') }
+    });
+    if (!existing) {
+      await usersCol.insertOne({
+        username: student.username,
+        name: student.name,
+        role: 'student',
+        password: student.password,
+        migrated: true,
+        created_at: new Date().toISOString()
+      });
+    } else if (!existing.password && !existing.password_hash) {
+      await usersCol.updateOne({ _id: existing._id }, { $set: { password: student.password } });
+    }
+  }
+}
 
 exports.getStats = async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
@@ -13,6 +34,10 @@ exports.getStats = async (req, res) => {
     const pendingGatha = await getCollection('pending_gatha');
 
     const usersCollection = await getCollection('users');
+    if (usersCollection) {
+      const dbCount = await usersCollection.countDocuments({ role: 'student' });
+      if (dbCount < LEGACY_STUDENTS.length) await ensureLegacyStudentsSeeded(usersCollection);
+    }
     const totalStudents = usersCollection ? await usersCollection.countDocuments({ role: 'student' }) : 0;
 
     const stats = {
@@ -250,7 +275,15 @@ exports.getStudents = async (req, res) => {
     const gatha = await getCollection('gatha');
 
     const usersCol = await getCollection('users');
-    const allStudents = usersCol ? await usersCol.find({ role: 'student' }).toArray() : [];
+    if (!usersCol) return res.json([]);
+
+    // Auto-seed if fewer students in DB than legacy list
+    const dbCount = await usersCol.countDocuments({ role: 'student' });
+    if (dbCount < LEGACY_STUDENTS.length) {
+      await ensureLegacyStudentsSeeded(usersCol);
+    }
+
+    const allStudents = await usersCol.find({ role: 'student' }).toArray();
 
     const studentsWithStats = await Promise.all(
       allStudents.map(async (student) => {
@@ -292,6 +325,171 @@ exports.getStudents = async (req, res) => {
   } catch (error) {
     console.error('Admin students error:', error);
     res.json([]);
+  }
+};
+
+exports.getTopStudents = async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  try {
+    const { startDate, endDate, limit = 5 } = req.query;
+    const start = startDate || '2020-01-01';
+    const end = endDate || '2099-12-31';
+    const n = parseInt(limit) || 5;
+
+    const attendance = await getCollection('attendance');
+    const gatha = await getCollection('gatha');
+    const usersCol = await getCollection('users');
+
+    let topAttendance = [], topGatha = [];
+
+    if (attendance && usersCol) {
+      const attAgg = await attendance.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $group: { _id: '$username', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: n }
+      ]).toArray();
+
+      const usernames = attAgg.map(a => a._id);
+      const users = await usersCol.find({ username: { $in: usernames } }).toArray();
+      const nameMap = {};
+      users.forEach(u => { nameMap[u.username] = u.name || u.username; });
+
+      topAttendance = attAgg.map((a, i) => ({
+        rank: i + 1,
+        username: a._id,
+        name: nameMap[a._id] || a._id,
+        count: a.count
+      }));
+    }
+
+    if (gatha && usersCol) {
+      const gathaAgg = await gatha.aggregate([
+        { $match: { date: { $gte: start, $lte: end }, type: 'new' } },
+        { $group: { _id: '$username', count: { $sum: '$total_gatha' } } },
+        { $sort: { count: -1 } },
+        { $limit: n }
+      ]).toArray();
+
+      const usernames = gathaAgg.map(g => g._id);
+      const users = await usersCol.find({ username: { $in: usernames } }).toArray();
+      const nameMap = {};
+      users.forEach(u => { nameMap[u.username] = u.name || u.username; });
+
+      topGatha = gathaAgg.map((g, i) => ({
+        rank: i + 1,
+        username: g._id,
+        name: nameMap[g._id] || g._id,
+        count: g.count
+      }));
+    }
+
+    res.json({ topAttendance, topGatha });
+  } catch (error) {
+    console.error('Top students error:', error);
+    res.json({ topAttendance: [], topGatha: [] });
+  }
+};
+
+exports.seedStudents = async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  try {
+    const usersCol = await getCollection('users');
+    if (!usersCol) return res.status(500).json({ error: 'Database not available' });
+
+    await ensureLegacyStudentsSeeded(usersCol);
+    const total = await usersCol.countDocuments({ role: 'student' });
+    res.json({ message: 'Seeding complete', totalStudents: total });
+  } catch (error) {
+    console.error('Seed students error:', error);
+    res.status(500).json({ error: 'Failed to seed students' });
+  }
+};
+
+exports.exportReport = async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  try {
+    const { startDate, endDate } = req.query;
+    const today = new Date();
+    const start = startDate || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+    const end = endDate || today.toISOString().split('T')[0];
+
+    const attendance = await getCollection('attendance');
+    const gatha = await getCollection('gatha');
+    const usersCol = await getCollection('users');
+    if (!usersCol) return res.status(500).json({ error: 'Database not available' });
+
+    // Auto-seed if needed
+    const dbCount = await usersCol.countDocuments({ role: 'student' });
+    if (dbCount < LEGACY_STUDENTS.length) await ensureLegacyStudentsSeeded(usersCol);
+
+    const allStudentsList = await usersCol.find({ role: 'student' }).toArray();
+
+    const studentsData = await Promise.all(
+      allStudentsList.map(async (student) => {
+        let attendanceCount = 0, newGathas = 0, revisionGathas = 0;
+
+        if (attendance) {
+          attendanceCount = await attendance.countDocuments({
+            username: student.username,
+            date: { $gte: start, $lte: end }
+          });
+        }
+        if (gatha) {
+          const records = await gatha.find({
+            username: student.username,
+            date: { $gte: start, $lte: end }
+          }).toArray();
+          records.forEach(g => {
+            const count = parseInt(g.total_gatha) || 0;
+            if (g.type === 'new') newGathas += count;
+            else revisionGathas += count;
+          });
+        }
+
+        return {
+          username: student.username,
+          name: student.name || student.username,
+          attendanceCount,
+          newGathas,
+          revisionGathas,
+          totalGathas: newGathas + revisionGathas,
+          totalScore: attendanceCount + newGathas
+        };
+      })
+    );
+
+    studentsData.sort((a, b) => a.name.localeCompare(b.name));
+
+    const totalAttendance = studentsData.reduce((s, x) => s + x.attendanceCount, 0);
+    const totalNewGathas = studentsData.reduce((s, x) => s + x.newGathas, 0);
+    const totalRevisionGathas = studentsData.reduce((s, x) => s + x.revisionGathas, 0);
+
+    const summary = {
+      totalStudents: studentsData.length,
+      activeStudents: studentsData.filter(s => s.attendanceCount > 0 || s.newGathas > 0).length,
+      totalAttendance,
+      totalNewGathas,
+      totalRevisionGathas,
+      totalGathas: totalNewGathas + totalRevisionGathas,
+      totalScore: totalAttendance + totalNewGathas,
+      dateRange: { start, end }
+    };
+
+    const sorted = [...studentsData].sort((a, b) => b.totalScore - a.totalScore);
+    const topPerformers = {
+      byAttendance: [...studentsData].sort((a, b) => b.attendanceCount - a.attendanceCount).slice(0, 5),
+      byGatha: [...studentsData].sort((a, b) => b.newGathas - a.newGathas).slice(0, 5),
+      byTotal: sorted.slice(0, 5)
+    };
+
+    res.json({ students: studentsData, summary, topPerformers, generatedAt: new Date().toISOString() });
+  } catch (error) {
+    console.error('Export report error:', error);
+    res.status(500).json({ error: 'Failed to generate report' });
   }
 };
 
