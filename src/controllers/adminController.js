@@ -5,22 +5,27 @@ const bcrypt = require('bcryptjs');
 const { LEGACY_STUDENTS } = require('../config/constants');
 
 async function ensureLegacyStudentsSeeded(usersCol) {
-  for (const student of LEGACY_STUDENTS) {
-    const existing = await usersCol.findOne({
-      username: { $regex: new RegExp('^' + student.username + '$', 'i') }
-    });
-    if (!existing) {
-      await usersCol.insertOne({
-        username: student.username,
-        name: student.name,
+  const legacyUsernames = LEGACY_STUDENTS.map(s => s.username);
+  const existing = await usersCol
+    .find({ username: { $in: legacyUsernames } })
+    .project({ username: 1 })
+    .toArray();
+  const existingSet = new Set(existing.map(u => u.username.toLowerCase()));
+
+  const toInsert = LEGACY_STUDENTS.filter(s => !existingSet.has(s.username.toLowerCase()));
+  if (toInsert.length > 0) {
+    const now = new Date().toISOString();
+    await usersCol.insertMany(
+      toInsert.map(s => ({
+        username: s.username,
+        name: s.name,
         role: 'student',
-        password: student.password,
+        password: s.password,
         migrated: true,
-        created_at: new Date().toISOString()
-      });
-    } else if (!existing.password && !existing.password_hash) {
-      await usersCol.updateOne({ _id: existing._id }, { $set: { password: student.password } });
-    }
+        created_at: now
+      })),
+      { ordered: false }
+    );
   }
 }
 

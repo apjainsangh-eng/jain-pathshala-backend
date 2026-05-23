@@ -75,28 +75,28 @@ async function migrateStudentsToDb() {
     const usersCollection = await getCollection('users');
     if (!usersCollection) return;
 
-    for (const student of LEGACY_STUDENTS) {
-      const existing = await usersCollection.findOne({
-        username: { $regex: new RegExp('^' + student.username + '$', 'i') }
-      });
-      if (!existing) {
-        await usersCollection.insertOne({
-          username: student.username,
-          name: student.name,
+    const legacyUsernames = LEGACY_STUDENTS.map(s => s.username);
+    const existing = await usersCollection
+      .find({ username: { $in: legacyUsernames } })
+      .project({ username: 1 })
+      .toArray();
+    const existingSet = new Set(existing.map(u => u.username.toLowerCase()));
+
+    const toInsert = LEGACY_STUDENTS.filter(s => !existingSet.has(s.username.toLowerCase()));
+    if (toInsert.length > 0) {
+      const now = new Date().toISOString();
+      await usersCollection.insertMany(
+        toInsert.map(s => ({
+          username: s.username,
+          name: s.name,
           role: 'student',
-          password: student.password,
+          password: s.password,
           migrated: true,
-          created_at: new Date().toISOString()
-        });
-        console.log('Migrated student:', student.username);
-      } else if (!existing.password && !existing.password_hash) {
-        // Student exists but has no password — set default plain-text password
-        await usersCollection.updateOne(
-          { _id: existing._id },
-          { $set: { password: student.password, migrated: true } }
-        );
-        console.log('Fixed missing password for:', student.username);
-      }
+          created_at: now
+        })),
+        { ordered: false }
+      );
+      console.log('Migrated', toInsert.length, 'students');
     }
   } catch (e) {
     console.error('Migration error:', e);
