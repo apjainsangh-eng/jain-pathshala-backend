@@ -89,6 +89,13 @@ async function migrateStudentsToDb() {
           created_at: new Date().toISOString()
         });
         console.log('Migrated student:', student.username);
+      } else if (!existing.password && !existing.password_hash) {
+        // Student exists but has no password — set default plain-text password
+        await usersCollection.updateOne(
+          { _id: existing._id },
+          { $set: { password: student.password, migrated: true } }
+        );
+        console.log('Fixed missing password for:', student.username);
       }
     }
   } catch (e) {

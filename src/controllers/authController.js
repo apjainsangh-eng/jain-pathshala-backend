@@ -1,5 +1,5 @@
 const { getCollection } = require('../config/db');
-const { ADMIN_USERS } = require('../config/constants');
+const { ADMIN_USERS, LEGACY_STUDENTS_MAP } = require('../config/constants');
 const { createToken } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
 
@@ -21,8 +21,40 @@ exports.loginUser = async (req, res) => {
       username: { $regex: new RegExp('^' + studentKey + '$', 'i') }
     });
 
+    // If not in DB yet, try lazy migration from legacy list
     if (!dbUser) {
-      return res.status(401).json({ error: 'User not found' });
+      const legacy = LEGACY_STUDENTS_MAP[studentKey];
+      if (!legacy) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      // Password must match the default before we create the record
+      if (password !== legacy.password) {
+        return res.status(401).json({ error: 'Invalid password' });
+      }
+      // Create in DB on-the-fly
+      try {
+        await usersCollection.insertOne({
+          username: legacy.username,
+          name: legacy.name,
+          role: 'student',
+          password: legacy.password,
+          migrated: true,
+          created_at: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error('Lazy migration insert error:', e);
+      }
+      const token = createToken({
+        id: legacy.username,
+        username: legacy.username,
+        name: legacy.name,
+        role: 'student'
+      });
+      return res.json({
+        user: { id: legacy.username, username: legacy.username, name: legacy.name, role: 'student' },
+        token,
+        familyGroup: { groupName: null, members: [] }
+      });
     }
 
     let isPasswordValid = false;
