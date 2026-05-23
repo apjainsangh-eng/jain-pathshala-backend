@@ -34,25 +34,32 @@ exports.getStats = async (req, res) => {
 
   try {
     const today = new Date().toISOString().split('T')[0];
-    const attendance = await getCollection('attendance');
-    const pendingAttendance = await getCollection('pending_attendance');
-    const pendingGatha = await getCollection('pending_gatha');
 
-    const usersCollection = await getCollection('users');
+    const [attendanceCol, pendingAttendanceCol, pendingGathaCol, usersCollection] = await Promise.all([
+      getCollection('attendance'),
+      getCollection('pending_attendance'),
+      getCollection('pending_gatha'),
+      getCollection('users')
+    ]);
+
     if (usersCollection) {
       const dbCount = await usersCollection.countDocuments({ role: 'student' });
       if (dbCount < LEGACY_STUDENTS.length) await ensureLegacyStudentsSeeded(usersCollection);
     }
-    const totalStudents = usersCollection ? await usersCollection.countDocuments({ role: 'student' }) : 0;
 
-    const stats = {
+    const [totalStudents, todayAtt, pendingAtt, pendingG] = await Promise.all([
+      usersCollection ? usersCollection.countDocuments({ role: 'student' }) : Promise.resolve(0),
+      attendanceCol ? attendanceCol.countDocuments({ date: today }) : Promise.resolve(0),
+      pendingAttendanceCol ? pendingAttendanceCol.countDocuments({ status: 'pending' }) : Promise.resolve(0),
+      pendingGathaCol ? pendingGathaCol.countDocuments({ status: 'pending' }) : Promise.resolve(0)
+    ]);
+
+    res.json({
       total_students: totalStudents,
-      today_attendance: attendance ? await attendance.countDocuments({ date: today }) : 0,
-      pending_attendance: pendingAttendance ? await pendingAttendance.countDocuments({ status: 'pending' }) : 0,
-      pending_gatha: pendingGatha ? await pendingGatha.countDocuments({ status: 'pending' }) : 0
-    };
-
-    res.json(stats);
+      today_attendance: todayAtt,
+      pending_attendance: pendingAtt,
+      pending_gatha: pendingG
+    });
   } catch (error) {
     console.error('Admin stats error:', error);
     res.json({ pending_attendance: 0, pending_gatha: 0, total_students: 34, today_attendance: 0 });
@@ -276,10 +283,11 @@ exports.getStudents = async (req, res) => {
     const start = startDate || '2020-01-01';
     const end = endDate || '2099-12-31';
 
-    const attendance = await getCollection('attendance');
-    const gatha = await getCollection('gatha');
-
-    const usersCol = await getCollection('users');
+    const [attendanceCol, gathaCol, usersCol] = await Promise.all([
+      getCollection('attendance'),
+      getCollection('gatha'),
+      getCollection('users')
+    ]);
     if (!usersCol) return res.json([]);
 
     // Auto-seed if fewer students in DB than legacy list
@@ -288,42 +296,42 @@ exports.getStudents = async (req, res) => {
       await ensureLegacyStudentsSeeded(usersCol);
     }
 
-    const allStudents = await usersCol.find({ role: 'student' }).toArray();
+    // Fetch students + bulk aggregate stats in parallel (3 queries total, not 66)
+    const [allStudents, attAgg, gathaAgg] = await Promise.all([
+      usersCol.find({ role: 'student' }).toArray(),
+      attendanceCol ? attendanceCol.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $group: { _id: '$username', count: { $sum: 1 } } }
+      ]).toArray() : [],
+      gathaCol ? gathaCol.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $group: { _id: { username: '$username', type: '$type' }, total: { $sum: '$total_gatha' } } }
+      ]).toArray() : []
+    ]);
 
-    const studentsWithStats = await Promise.all(
-      allStudents.map(async (student) => {
-        let attendance_count = 0, new_gathas = 0, revision_gathas = 0;
+    const attMap = {};
+    attAgg.forEach(a => { attMap[a._id] = a.count; });
 
-        if (attendance) {
-          attendance_count = await attendance.countDocuments({
-            username: student.username,
-            date: { $gte: start, $lte: end }
-          });
-        }
+    const gathaMap = {};
+    gathaAgg.forEach(g => {
+      const u = g._id.username;
+      if (!gathaMap[u]) gathaMap[u] = { new: 0, revision: 0 };
+      gathaMap[u][g._id.type] = (gathaMap[u][g._id.type] || 0) + (g.total || 0);
+    });
 
-        if (gatha) {
-          const gathaStats = await gatha.aggregate([
-            { $match: { username: student.username, date: { $gte: start, $lte: end } } },
-            { $group: { _id: '$type', total: { $sum: '$total_gatha' } } }
-          ]).toArray();
-
-          gathaStats.forEach(stat => {
-            if (stat._id === 'new') new_gathas = stat.total || 0;
-            else if (stat._id === 'revision') revision_gathas = stat.total || 0;
-          });
-        }
-
-        return {
-          id: student.username,
-          username: student.username,
-          name: student.name || student.username,
-          attendance_count,
-          total_gathas: new_gathas + revision_gathas,
-          new_gathas,
-          revision_gathas
-        };
-      })
-    );
+    const studentsWithStats = allStudents.map(student => {
+      const att = attMap[student.username] || 0;
+      const g = gathaMap[student.username] || { new: 0, revision: 0 };
+      return {
+        id: student.username,
+        username: student.username,
+        name: student.name || student.username,
+        attendance_count: att,
+        total_gathas: g.new + g.revision,
+        new_gathas: g.new,
+        revision_gathas: g.revision
+      };
+    });
 
     studentsWithStats.sort((a, b) => a.name.localeCompare(b.name));
     res.json(studentsWithStats);
@@ -422,50 +430,55 @@ exports.exportReport = async (req, res) => {
     const start = startDate || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
     const end = endDate || today.toISOString().split('T')[0];
 
-    const attendance = await getCollection('attendance');
-    const gatha = await getCollection('gatha');
-    const usersCol = await getCollection('users');
+    const [attendanceCol, gathaCol, usersCol] = await Promise.all([
+      getCollection('attendance'),
+      getCollection('gatha'),
+      getCollection('users')
+    ]);
     if (!usersCol) return res.status(500).json({ error: 'Database not available' });
 
     // Auto-seed if needed
     const dbCount = await usersCol.countDocuments({ role: 'student' });
     if (dbCount < LEGACY_STUDENTS.length) await ensureLegacyStudentsSeeded(usersCol);
 
-    const allStudentsList = await usersCol.find({ role: 'student' }).toArray();
+    // Bulk aggregate in parallel (3 queries total)
+    const [allStudentsList, attAgg, gathaAgg] = await Promise.all([
+      usersCol.find({ role: 'student' }).toArray(),
+      attendanceCol ? attendanceCol.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $group: { _id: '$username', count: { $sum: 1 } } }
+      ]).toArray() : [],
+      gathaCol ? gathaCol.aggregate([
+        { $match: { date: { $gte: start, $lte: end } } },
+        { $group: { _id: { username: '$username', type: '$type' }, total: { $sum: '$total_gatha' } } }
+      ]).toArray() : []
+    ]);
 
-    const studentsData = await Promise.all(
-      allStudentsList.map(async (student) => {
-        let attendanceCount = 0, newGathas = 0, revisionGathas = 0;
+    const attMap = {};
+    attAgg.forEach(a => { attMap[a._id] = a.count; });
 
-        if (attendance) {
-          attendanceCount = await attendance.countDocuments({
-            username: student.username,
-            date: { $gte: start, $lte: end }
-          });
-        }
-        if (gatha) {
-          const records = await gatha.find({
-            username: student.username,
-            date: { $gte: start, $lte: end }
-          }).toArray();
-          records.forEach(g => {
-            const count = parseInt(g.total_gatha) || 0;
-            if (g.type === 'new') newGathas += count;
-            else revisionGathas += count;
-          });
-        }
+    const gathaMap = {};
+    gathaAgg.forEach(g => {
+      const u = g._id.username;
+      if (!gathaMap[u]) gathaMap[u] = { new: 0, revision: 0 };
+      gathaMap[u][g._id.type] = (gathaMap[u][g._id.type] || 0) + (g.total || 0);
+    });
 
-        return {
-          username: student.username,
-          name: student.name || student.username,
-          attendanceCount,
-          newGathas,
-          revisionGathas,
-          totalGathas: newGathas + revisionGathas,
-          totalScore: attendanceCount + newGathas
-        };
-      })
-    );
+    const studentsData = allStudentsList.map(student => {
+      const att = attMap[student.username] || 0;
+      const g = gathaMap[student.username] || { new: 0, revision: 0 };
+      const newGathas = g.new;
+      const revisionGathas = g.revision;
+      return {
+        username: student.username,
+        name: student.name || student.username,
+        attendanceCount: att,
+        newGathas,
+        revisionGathas,
+        totalGathas: newGathas + revisionGathas,
+        totalScore: att + newGathas
+      };
+    });
 
     studentsData.sort((a, b) => a.name.localeCompare(b.name));
 
