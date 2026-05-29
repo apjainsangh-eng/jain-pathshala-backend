@@ -161,6 +161,8 @@ exports.getStudentProfile = async (req, res) => {
           type: 'gatha',
           date: g.date,
           gathaType: g.type,
+          activityTypeName: g.activityTypeName || (g.type === 'new' ? 'New Learning' : g.type === 'revision' ? 'Revision' : g.type),
+          customActivityDescription: g.customActivityDescription || null,
           sutraName: g.sutra_name,
           whichGatha: g.which_gatha,
           totalGatha: g.total_gatha,
