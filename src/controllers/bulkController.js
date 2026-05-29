@@ -101,10 +101,21 @@ exports.bulkGatha = async (req, res) => {
     for (const entry of entries) {
       if (!entry.username || !entry.sutraName || !entry.totalGatha) continue;
 
+      const resolvedTypeName = entry.activityTypeName || (entry.type === 'new' ? 'New Learning' : entry.type === 'revision' ? 'Revision' : entry.type || 'New Learning');
+      const resolvedType = (() => {
+        const lower = resolvedTypeName.toLowerCase().trim();
+        if (lower === 'new learning' || lower === 'new') return 'new';
+        if (lower === 'revision') return 'revision';
+        return lower.replace(/\s+/g, '_');
+      })();
+
       await gatha.insertOne({
         username: entry.username,
         student_name: entry.username,
-        type: entry.type || 'new',
+        type: resolvedType,
+        activityTypeId: entry.activityTypeId || null,
+        activityTypeName: resolvedTypeName,
+        customActivityDescription: resolvedTypeName === 'Other' ? (entry.customActivityDescription || null) : null,
         sutra_name: entry.sutraName,
         which_gatha: entry.whichGatha || '',
         total_gatha: parseInt(entry.totalGatha) || 1,
@@ -276,6 +287,9 @@ exports.bulkApprove = async (req, res) => {
               username: pending.username,
               student_name: pending.student_name || pending.username,
               type: pending.type,
+              activityTypeId: pending.activityTypeId || null,
+              activityTypeName: pending.activityTypeName || (pending.type === 'new' ? 'New Learning' : pending.type === 'revision' ? 'Revision' : pending.type),
+              customActivityDescription: pending.customActivityDescription || null,
               sutra_name: pending.sutra_name,
               which_gatha: pending.which_gatha,
               total_gatha: pending.total_gatha,

@@ -8,6 +8,7 @@ const statsRoutes = require('./routes/statsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const miscRoutes = require('./routes/miscRoutes');
 const exportRoutes = require('./routes/exportRoutes');
+const activityTypeRoutes = require('./routes/activityTypeRoutes');
 
 const app = express();
 
@@ -69,5 +70,6 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', miscRoutes);                  // includes /leaderboard, /achievements, /profile, /change-password ...
 app.use('/api/admin/export', require('./middleware/auth').authenticate, exportRoutes);
+app.use('/api/activity-types', activityTypeRoutes);
 
 module.exports = app;

@@ -48,7 +48,11 @@ exports.getHistoryMonth = async (req, res) => {
         }
         const count = parseInt(r.total_gatha) || 0;
         dailyActivity[r.date].gathas[r.type || 'new'] += count;
-        dailyActivity[r.date].details.push(r);
+        dailyActivity[r.date].details.push({
+          ...r,
+          activityTypeName: r.activityTypeName || (r.type === 'new' ? 'New Learning' : r.type === 'revision' ? 'Revision' : r.type),
+          customActivityDescription: r.customActivityDescription || null,
+        });
       });
     }
 
@@ -102,8 +106,14 @@ exports.getHistoryRange = async (req, res) => {
         const type = r.type || 'new';
         dailyActivity[r.date].gathas[type] += count;
         dailyActivity[r.date].details.push({
-          id: r._id.toString(), type: r.type, sutra_name: r.sutra_name, which_gatha: r.which_gatha,
-          total_gatha: r.total_gatha, created_at: r.created_at
+          id: r._id.toString(),
+          type: r.type,
+          activityTypeName: r.activityTypeName || (r.type === 'new' ? 'New Learning' : r.type === 'revision' ? 'Revision' : r.type),
+          customActivityDescription: r.customActivityDescription || null,
+          sutra_name: r.sutra_name,
+          which_gatha: r.which_gatha,
+          total_gatha: r.total_gatha,
+          created_at: r.created_at,
         });
       });
     }

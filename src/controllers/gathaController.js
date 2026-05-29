@@ -2,6 +2,14 @@ const { getCollection } = require('../config/db');
 const { canActAs, formatTime, formatDate } = require('../utils/helpers');
 const { ObjectId } = require('mongodb');
 
+function deriveStorageType(activityTypeName) {
+  if (!activityTypeName) return 'new';
+  const lower = activityTypeName.toLowerCase().trim();
+  if (lower === 'new learning' || lower === 'new') return 'new';
+  if (lower === 'revision') return 'revision';
+  return lower.replace(/\s+/g, '_');
+}
+
 exports.getGatha = async (req, res) => {
   try {
     const gatha = await getCollection('gatha');
@@ -20,16 +28,23 @@ exports.getGatha = async (req, res) => {
 
 exports.addGatha = async (req, res) => {
   try {
-    const { type, sutra_name, which_gatha, total_gatha } = req.body || {};
+    const { type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription } = req.body || {};
 
-    if (!type || !sutra_name || !which_gatha || !total_gatha) {
+    if (!sutra_name || !which_gatha || !total_gatha) {
       return res.status(400).json({ error: 'All fields required' });
+    }
+
+    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : type);
+    const resolvedType = deriveStorageType(resolvedTypeName);
+
+    if (resolvedTypeName === 'Other' && !customActivityDescription) {
+      return res.status(400).json({ error: 'Description required for Other activity type' });
     }
 
     const today = new Date().toISOString().split('T')[0];
     const now = new Date();
     const pendingGatha = await getCollection('pending_gatha');
-    
+
     if (!pendingGatha) {
       return res.status(500).json({ error: 'Database not available' });
     }
@@ -37,7 +52,10 @@ exports.addGatha = async (req, res) => {
     await pendingGatha.insertOne({
       username: req.user.username,
       student_name: req.user.name || req.user.username,
-      type,
+      type: resolvedType,
+      activityTypeId: activityTypeId || null,
+      activityTypeName: resolvedTypeName,
+      customActivityDescription: resolvedTypeName === 'Other' ? (customActivityDescription || null) : null,
       sutra_name,
       which_gatha,
       total_gatha: parseInt(total_gatha),
@@ -57,7 +75,7 @@ exports.addGatha = async (req, res) => {
 
 exports.addGathaFor = async (req, res) => {
   try {
-    const { forUsername, type, sutra_name, which_gatha, total_gatha } = req.body || {};
+    const { forUsername, type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription } = req.body || {};
     const targetUser = forUsername || req.user.username;
 
     if (targetUser !== req.user.username) {
@@ -67,14 +85,21 @@ exports.addGathaFor = async (req, res) => {
       }
     }
 
-    if (!type || !sutra_name || !which_gatha || !total_gatha) {
+    if (!sutra_name || !which_gatha || !total_gatha) {
       return res.status(400).json({ error: 'All fields required' });
+    }
+
+    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : type);
+    const resolvedType = deriveStorageType(resolvedTypeName);
+
+    if (resolvedTypeName === 'Other' && !customActivityDescription) {
+      return res.status(400).json({ error: 'Description required for Other activity type' });
     }
 
     const today = new Date().toISOString().split('T')[0];
     const now = new Date();
     const pendingGatha = await getCollection('pending_gatha');
-    
+
     if (!pendingGatha) {
       return res.status(500).json({ error: 'Database not available' });
     }
@@ -86,7 +111,10 @@ exports.addGathaFor = async (req, res) => {
     await pendingGatha.insertOne({
       username: targetUser,
       student_name: targetInfo.name,
-      type,
+      type: resolvedType,
+      activityTypeId: activityTypeId || null,
+      activityTypeName: resolvedTypeName,
+      customActivityDescription: resolvedTypeName === 'Other' ? (customActivityDescription || null) : null,
       sutra_name,
       which_gatha,
       total_gatha: parseInt(total_gatha),
