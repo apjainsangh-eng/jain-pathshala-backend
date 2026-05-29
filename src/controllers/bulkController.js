@@ -99,7 +99,8 @@ exports.bulkGatha = async (req, res) => {
     let added = 0;
 
     for (const entry of entries) {
-      if (!entry.username || !entry.sutraName || !entry.totalGatha) continue;
+      if (!entry.username) continue;
+      if (entry.type !== 'other' && (!entry.sutraName || !entry.totalGatha)) continue;
 
       const resolvedTypeName = entry.activityTypeName || (entry.type === 'new' ? 'New Learning' : entry.type === 'revision' ? 'Revision' : entry.type || 'New Learning');
       const resolvedType = (() => {
