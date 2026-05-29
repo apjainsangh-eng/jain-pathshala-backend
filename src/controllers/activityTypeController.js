@@ -2,9 +2,10 @@ const { getCollection } = require('../config/db');
 const { ObjectId } = require('mongodb');
 
 const DEFAULT_TYPES = [
-  { name: 'New Learning', isDefault: true, isActive: true },
-  { name: 'Revision', isDefault: true, isActive: true },
-  { name: 'Other', isDefault: true, isActive: true },
+  { name: 'Swadhyay', isDefault: true, isActive: true },
+  { name: 'Bhaktamar', isDefault: true, isActive: true },
+  { name: 'Pathan', isDefault: true, isActive: true },
+  { name: 'Competition Practice', isDefault: true, isActive: true },
 ];
 
 async function ensureActivityTypesSeed(col) {
