@@ -30,14 +30,15 @@ exports.addGatha = async (req, res) => {
   try {
     const { type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription, xpPoints } = req.body || {};
 
-    if (!sutra_name || !which_gatha || !total_gatha) {
+    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : type);
+    const resolvedType = deriveStorageType(resolvedTypeName);
+    const isNewOrRevision = resolvedType === 'new' || resolvedType === 'revision';
+
+    if (isNewOrRevision && (!sutra_name || !which_gatha || !total_gatha)) {
       return res.status(400).json({ error: 'All fields required' });
     }
 
-    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : type);
-    const resolvedType = deriveStorageType(resolvedTypeName);
-
-    if (resolvedTypeName === 'Other' && !customActivityDescription) {
+    if (!isNewOrRevision && resolvedTypeName === 'Other' && !customActivityDescription) {
       return res.status(400).json({ error: 'Description required for Other activity type' });
     }
 
@@ -86,14 +87,15 @@ exports.addGathaFor = async (req, res) => {
       }
     }
 
-    if (!sutra_name || !which_gatha || !total_gatha) {
+    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : type);
+    const resolvedType = deriveStorageType(resolvedTypeName);
+    const isNewOrRevision = resolvedType === 'new' || resolvedType === 'revision';
+
+    if (isNewOrRevision && (!sutra_name || !which_gatha || !total_gatha)) {
       return res.status(400).json({ error: 'All fields required' });
     }
 
-    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : type);
-    const resolvedType = deriveStorageType(resolvedTypeName);
-
-    if (resolvedTypeName === 'Other' && !customActivityDescription) {
+    if (!isNewOrRevision && resolvedTypeName === 'Other' && !customActivityDescription) {
       return res.status(400).json({ error: 'Description required for Other activity type' });
     }
 
