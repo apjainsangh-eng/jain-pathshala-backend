@@ -2,10 +2,10 @@ const { getCollection } = require('../config/db');
 const { ObjectId } = require('mongodb');
 
 const DEFAULT_TYPES = [
-  { name: 'Swadhyay', isDefault: true, isActive: true },
-  { name: 'Bhaktamar', isDefault: true, isActive: true },
-  { name: 'Pathan', isDefault: true, isActive: true },
-  { name: 'Competition Practice', isDefault: true, isActive: true },
+  { name: 'Swadhyay', isDefault: true, isActive: true, xpPoints: 5 },
+  { name: 'Bhaktamar', isDefault: true, isActive: true, xpPoints: 10 },
+  { name: 'Pathan', isDefault: true, isActive: true, xpPoints: 5 },
+  { name: 'Competition Practice', isDefault: true, isActive: true, xpPoints: 15 },
 ];
 
 async function ensureActivityTypesSeed(col) {
@@ -32,6 +32,7 @@ exports.getActivityTypes = async (req, res) => {
       name: t.name,
       isDefault: t.isDefault,
       isActive: t.isActive,
+      xpPoints: t.xpPoints ?? 1,
       createdAt: t.createdAt,
     })));
   } catch (error) {
@@ -44,7 +45,7 @@ exports.createActivityType = async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
   try {
-    const { name } = req.body;
+    const { name, xpPoints } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
 
     const col = await getCollection('activity_types');
@@ -58,6 +59,7 @@ exports.createActivityType = async (req, res) => {
       name: name.trim(),
       isDefault: false,
       isActive: true,
+      xpPoints: Math.max(0, parseInt(xpPoints) || 1),
       createdAt: now,
       updatedAt: now,
     });
@@ -73,7 +75,7 @@ exports.updateActivityType = async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
   try {
-    const { name, isActive } = req.body;
+    const { name, isActive, xpPoints } = req.body;
     const col = await getCollection('activity_types');
     if (!col) return res.status(500).json({ error: 'Database not available' });
 
@@ -86,6 +88,7 @@ exports.updateActivityType = async (req, res) => {
       update.name = name.trim();
     }
     if (isActive !== undefined) update.isActive = isActive;
+    if (xpPoints !== undefined) update.xpPoints = Math.max(0, parseInt(xpPoints) || 1);
 
     await col.updateOne({ _id: new ObjectId(req.params.id) }, { $set: update });
     res.json({ message: 'Updated' });

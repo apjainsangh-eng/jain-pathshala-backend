@@ -28,7 +28,7 @@ exports.getGatha = async (req, res) => {
 
 exports.addGatha = async (req, res) => {
   try {
-    const { type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription } = req.body || {};
+    const { type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription, xpPoints } = req.body || {};
 
     if (!sutra_name || !which_gatha || !total_gatha) {
       return res.status(400).json({ error: 'All fields required' });
@@ -56,6 +56,7 @@ exports.addGatha = async (req, res) => {
       activityTypeId: activityTypeId || null,
       activityTypeName: resolvedTypeName,
       customActivityDescription: resolvedTypeName === 'Other' ? (customActivityDescription || null) : null,
+      xpPoints: (resolvedType === 'new' || resolvedType === 'revision') ? 0 : (parseInt(xpPoints) || 0),
       sutra_name,
       which_gatha,
       total_gatha: parseInt(total_gatha),
@@ -75,7 +76,7 @@ exports.addGatha = async (req, res) => {
 
 exports.addGathaFor = async (req, res) => {
   try {
-    const { forUsername, type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription } = req.body || {};
+    const { forUsername, type, sutra_name, which_gatha, total_gatha, activityTypeId, activityTypeName, customActivityDescription, xpPoints } = req.body || {};
     const targetUser = forUsername || req.user.username;
 
     if (targetUser !== req.user.username) {
@@ -115,6 +116,7 @@ exports.addGathaFor = async (req, res) => {
       activityTypeId: activityTypeId || null,
       activityTypeName: resolvedTypeName,
       customActivityDescription: resolvedTypeName === 'Other' ? (customActivityDescription || null) : null,
+      xpPoints: (resolvedType === 'new' || resolvedType === 'revision') ? 0 : (parseInt(xpPoints) || 0),
       sutra_name,
       which_gatha,
       total_gatha: parseInt(total_gatha),

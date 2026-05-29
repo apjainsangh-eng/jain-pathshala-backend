@@ -57,6 +57,7 @@ exports.getStudentProfile = async (req, res) => {
     let totalGathasSubmitted = 0;
     let totalNewGathas = 0;
     let totalRevisionGathas = 0;
+    let totalOtherXP = 0;
     let lastGathaDate = null;
 
     if (gatha) {
@@ -67,7 +68,8 @@ exports.getStudentProfile = async (req, res) => {
         const count = parseInt(g.total_gatha) || 0;
         totalGathasSubmitted += count;
         if (g.type === 'new') totalNewGathas += count;
-        else totalRevisionGathas += count;
+        else if (g.type === 'revision') totalRevisionGathas += count;
+        else totalOtherXP += parseInt(g.xpPoints) || 0;
       });
     }
 
@@ -91,7 +93,7 @@ exports.getStudentProfile = async (req, res) => {
     }
 
     // === Score ===
-    const score = totalPresent + totalNewGathas;
+    const score = totalPresent + totalNewGathas + totalOtherXP;
 
     // === Activity status ===
     const isActive = (() => {
@@ -278,6 +280,7 @@ exports.getStudentProfile = async (req, res) => {
         totalGathasSubmitted,
         totalNewGathas,
         totalRevisionGathas,
+        totalOtherXP,
         approvedGathas,
         rejectedGathas,
         pendingAttendance: pendingAttCount,
