@@ -220,6 +220,80 @@ exports.rejectGatha = async (req, res) => {
   }
 };
 
+exports.addGathaForStudent = async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  try {
+    const { username, date, sutraName, whichGatha, totalGatha, type, activityTypeName, customActivityDescription, xpPoints } = req.body || {};
+    if (!username) return res.status(400).json({ error: 'Username required' });
+
+    const gatha = await getCollection('gatha');
+    if (!gatha) return res.status(500).json({ error: 'Database not available' });
+
+    const resolvedTypeName = activityTypeName || (type === 'new' ? 'New Learning' : type === 'revision' ? 'Revision' : 'New Learning');
+    const lower = resolvedTypeName.toLowerCase().trim();
+    const resolvedType = lower === 'new learning' || lower === 'new' ? 'new' : lower === 'revision' ? 'revision' : lower.replace(/\s+/g, '_');
+    const isNewOrRevision = resolvedType === 'new' || resolvedType === 'revision';
+
+    if (isNewOrRevision && (!sutraName || !totalGatha)) {
+      return res.status(400).json({ error: 'Sutra name and count required for New/Revision type' });
+    }
+
+    const now = new Date().toISOString();
+    await gatha.insertOne({
+      username,
+      student_name: username,
+      type: resolvedType,
+      activityTypeName: resolvedTypeName,
+      customActivityDescription: !isNewOrRevision && resolvedTypeName === 'Other' ? (customActivityDescription || null) : null,
+      xpPoints: isNewOrRevision ? 0 : (parseInt(xpPoints) || 0),
+      sutra_name: sutraName || '',
+      which_gatha: whichGatha || '',
+      total_gatha: isNewOrRevision ? (parseInt(totalGatha) || 1) : 0,
+      date: date || now.split('T')[0],
+      created_at: now,
+      approved_by: req.user.username || req.user.name,
+      approved_at: now,
+      added_by_admin: true,
+    });
+
+    res.json({ message: 'Gatha added' });
+  } catch (error) {
+    console.error('Admin add gatha error:', error);
+    res.status(500).json({ error: 'Failed to add gatha' });
+  }
+};
+
+exports.addAttendanceForStudent = async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  try {
+    const { username, date } = req.body || {};
+    if (!username || !date) return res.status(400).json({ error: 'Username and date required' });
+
+    const attendance = await getCollection('attendance');
+    if (!attendance) return res.status(500).json({ error: 'Database not available' });
+
+    const existing = await attendance.findOne({ username, date });
+    if (existing) return res.status(400).json({ error: 'Attendance already marked for this date' });
+
+    const now = new Date().toISOString();
+    await attendance.insertOne({
+      username,
+      date,
+      created_at: now,
+      approved_by: req.user.username || req.user.name,
+      approved_at: now,
+      added_by_admin: true,
+    });
+
+    res.json({ message: 'Attendance added' });
+  } catch (error) {
+    console.error('Admin add attendance error:', error);
+    res.status(500).json({ error: 'Failed to add attendance' });
+  }
+};
+
 exports.approveAll = async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 

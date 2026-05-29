@@ -9,6 +9,10 @@ const { authenticate } = require('../middleware/auth');
 router.get('/stats', authenticate, adminController.getStats);
 router.get('/pending', authenticate, adminController.getPending);
 
+// === Admin Direct Add ===
+router.post('/gatha/add', authenticate, adminController.addGathaForStudent);
+router.post('/attendance/add', authenticate, adminController.addAttendanceForStudent);
+
 // === Single Approve / Reject ===
 router.post('/attendance/approve/:id', authenticate, adminController.approveAttendance);
 router.post('/attendance/reject/:id', authenticate, adminController.rejectAttendance);
