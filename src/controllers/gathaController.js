@@ -50,6 +50,18 @@ exports.addGatha = async (req, res) => {
       return res.status(500).json({ error: 'Database not available' });
     }
 
+    // Prevent duplicate named Other-type activities on the same day
+    if (!isNewOrRevision && resolvedTypeName !== 'Other') {
+      const gathaCol = await getCollection('gatha');
+      const [alreadyApproved, alreadyPending] = await Promise.all([
+        gathaCol ? gathaCol.findOne({ username: req.user.username, date: today, activityTypeName: resolvedTypeName }) : null,
+        pendingGatha.findOne({ username: req.user.username, date: today, activityTypeName: resolvedTypeName, status: 'pending' }),
+      ]);
+      if (alreadyApproved || alreadyPending) {
+        return res.status(400).json({ error: `${resolvedTypeName} already submitted for today` });
+      }
+    }
+
     await pendingGatha.insertOne({
       username: req.user.username,
       student_name: req.user.name || req.user.username,
@@ -105,6 +117,18 @@ exports.addGathaFor = async (req, res) => {
 
     if (!pendingGatha) {
       return res.status(500).json({ error: 'Database not available' });
+    }
+
+    // Prevent duplicate named Other-type activities on the same day
+    if (!isNewOrRevision && resolvedTypeName !== 'Other') {
+      const gathaCol = await getCollection('gatha');
+      const [alreadyApproved, alreadyPending] = await Promise.all([
+        gathaCol ? gathaCol.findOne({ username: targetUser, date: today, activityTypeName: resolvedTypeName }) : null,
+        pendingGatha.findOne({ username: targetUser, date: today, activityTypeName: resolvedTypeName, status: 'pending' }),
+      ]);
+      if (alreadyApproved || alreadyPending) {
+        return res.status(400).json({ error: `${resolvedTypeName} already submitted for today` });
+      }
     }
 
     const usersCol = await getCollection('users');
