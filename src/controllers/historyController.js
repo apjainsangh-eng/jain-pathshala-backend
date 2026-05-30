@@ -32,7 +32,7 @@ exports.getHistoryMonth = async (req, res) => {
       }).toArray();
 
       attRecords.forEach(r => {
-        dailyActivity[r.date] = { present: true, gathas: { new: 0, revision: 0 }, details: [] };
+        dailyActivity[r.date] = { present: true, gathas: { new: 0, revision: 0, other: 0 }, details: [] };
       });
     }
 
@@ -44,14 +44,17 @@ exports.getHistoryMonth = async (req, res) => {
 
       gathaRecords.forEach(r => {
         if (!dailyActivity[r.date]) {
-          dailyActivity[r.date] = { present: false, gathas: { new: 0, revision: 0 }, details: [] };
+          dailyActivity[r.date] = { present: false, gathas: { new: 0, revision: 0, other: 0 }, details: [] };
         }
         const count = parseInt(r.total_gatha) || 0;
-        dailyActivity[r.date].gathas[r.type || 'new'] += count;
+        if (r.type === 'new') dailyActivity[r.date].gathas.new += count;
+        else if (r.type === 'revision') dailyActivity[r.date].gathas.revision += count;
+        else dailyActivity[r.date].gathas.other += 1;
         dailyActivity[r.date].details.push({
           ...r,
           activityTypeName: r.activityTypeName || (r.type === 'new' ? 'New Learning' : r.type === 'revision' ? 'Revision' : r.type),
           customActivityDescription: r.customActivityDescription || null,
+          xpPoints: r.xpPoints || 0,
         });
       });
     }
