@@ -91,28 +91,30 @@ exports.getHistoryRange = async (req, res) => {
       }).toArray();
       
       attRecords.forEach(r => {
-        dailyActivity[r.date] = { present: true, gathas: { new: 0, revision: 0 }, details: [], attendanceTime: r.created_at };
+        dailyActivity[r.date] = { present: true, gathas: { new: 0, revision: 0, other: 0 }, details: [], attendanceTime: r.created_at };
       });
     }
-    
+
     if (gatha) {
       const gathaRecords = await gatha.find({
         username: targetUsername,
         date: { $gte: startDate, $lte: endDate }
       }).toArray();
-      
+
       gathaRecords.forEach(r => {
         if (!dailyActivity[r.date]) {
-          dailyActivity[r.date] = { present: false, gathas: { new: 0, revision: 0 }, details: [] };
+          dailyActivity[r.date] = { present: false, gathas: { new: 0, revision: 0, other: 0 }, details: [] };
         }
         const count = parseInt(r.total_gatha) || 0;
-        const type = r.type || 'new';
-        dailyActivity[r.date].gathas[type] += count;
+        if (r.type === 'new') dailyActivity[r.date].gathas.new += count;
+        else if (r.type === 'revision') dailyActivity[r.date].gathas.revision += count;
+        else dailyActivity[r.date].gathas.other += 1;
         dailyActivity[r.date].details.push({
           id: r._id.toString(),
           type: r.type,
           activityTypeName: r.activityTypeName || (r.type === 'new' ? 'New Learning' : r.type === 'revision' ? 'Revision' : r.type),
           customActivityDescription: r.customActivityDescription || null,
+          xpPoints: r.xpPoints || 0,
           sutra_name: r.sutra_name,
           which_gatha: r.which_gatha,
           total_gatha: r.total_gatha,
@@ -120,15 +122,16 @@ exports.getHistoryRange = async (req, res) => {
         });
       });
     }
-    
-    let totalDays = 0, totalNewGathas = 0, totalRevisionGathas = 0;
+
+    let totalDays = 0, totalNewGathas = 0, totalRevisionGathas = 0, totalOtherActivities = 0;
     Object.values(dailyActivity).forEach(day => {
       if (day.present) totalDays++;
       totalNewGathas += day.gathas.new;
       totalRevisionGathas += day.gathas.revision;
+      totalOtherActivities += day.gathas.other || 0;
     });
     
-    res.json({ dailyActivity, summary: { totalDays, totalNewGathas, totalRevisionGathas, totalGathas: totalNewGathas + totalRevisionGathas } });
+    res.json({ dailyActivity, summary: { totalDays, totalNewGathas, totalRevisionGathas, totalOtherActivities, totalGathas: totalNewGathas + totalRevisionGathas } });
   } catch (error) {
     res.json({ dailyActivity: {}, summary: {} });
   }
