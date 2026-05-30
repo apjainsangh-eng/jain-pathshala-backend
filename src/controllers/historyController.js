@@ -24,6 +24,7 @@ exports.getHistoryMonth = async (req, res) => {
 
     const attendance = await getCollection('attendance');
     const gatha = await getCollection('gatha');
+    const pendingGatha = await getCollection('pending_gatha');
 
     if (attendance) {
       const attRecords = await attendance.find({
@@ -55,6 +56,33 @@ exports.getHistoryMonth = async (req, res) => {
           activityTypeName: r.activityTypeName || (r.type === 'new' ? 'New Learning' : r.type === 'revision' ? 'Revision' : r.type),
           customActivityDescription: r.customActivityDescription || null,
           xpPoints: r.xpPoints || 0,
+          status: 'approved',
+        });
+      });
+    }
+
+    // Also include pending gathas so they show in the history calendar
+    if (pendingGatha) {
+      const pendingRecords = await pendingGatha.find({
+        username: targetUsername,
+        date: { $gte: start, $lte: end },
+        status: 'pending',
+      }).toArray();
+
+      pendingRecords.forEach(r => {
+        if (!dailyActivity[r.date]) {
+          dailyActivity[r.date] = { present: false, gathas: { new: 0, revision: 0, other: 0 }, details: [] };
+        }
+        const count = parseInt(r.total_gatha) || 0;
+        if (r.type === 'new') dailyActivity[r.date].gathas.new += count;
+        else if (r.type === 'revision') dailyActivity[r.date].gathas.revision += count;
+        else dailyActivity[r.date].gathas.other += 1;
+        dailyActivity[r.date].details.push({
+          ...r,
+          activityTypeName: r.activityTypeName || (r.type === 'new' ? 'New Learning' : r.type === 'revision' ? 'Revision' : r.type),
+          customActivityDescription: r.customActivityDescription || null,
+          xpPoints: r.xpPoints || 0,
+          status: 'pending',
         });
       });
     }
